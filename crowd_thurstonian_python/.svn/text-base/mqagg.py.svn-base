@@ -1,0 +1,181 @@
+'''
+Created on Jan 19, 2014
+
+@author: xwang95
+'''
+import os;
+import re;
+import sys;
+from toolkit.utility import  parseNumVal;
+from toolkit.num.arithmetic import std, avg, var;
+import random;
+import math;
+
+class MQAgg(object):
+    paramGS = {};
+    paramPS = {};
+    def __init__(self, filePath=None):
+        paramGS = {};
+        paramPS = {};
+        docId = 0;
+        if(filePath is None):
+            filePath = os.path.join(os.path.expanduser('~'), 'data/LETOR/MQ2008-agg', 'agg.txt');
+            fin = open(filePath, 'r');
+            for ln in fin:
+                string = re.sub('#.*', '', ln).strip();
+#                 labeledTimes = 25 - len(re.findall('NULL', string));
+                if(not string): continue;
+#                 if(labeledTimes < 0):  continue;
+                parts = string.split();
+                gs = float(parseNumVal(parts[0])); 
+                qid = parseNumVal(parts[1].split(':')[1]);
+                if(qid not in paramGS): paramGS[qid] = {};
+                paramGS[qid][docId] = gs;         
+                for i in range(2, len(parts)):
+                    (wid, ps) = (parseNumVal(parts[i].split(':')[0]), float(parseNumVal(parts[i].split(':')[1], -1)));
+                    if(ps == -1): continue;
+                    if(wid not in paramPS): paramPS[wid] = {};
+                    if(qid not in paramPS[wid]): paramPS[wid][qid] = {};
+                    paramPS[wid][qid][docId] = ps;
+                docId += 1;
+        (paramGS, paramPS) = getSmallSet(paramGS, paramPS);
+        self.paramGS = paramGS;
+        self.paramPS = paramPS;
+        print len(paramGS), len(paramPS);
+        print avg([len(paramGS[l]) for l in paramGS]);
+        print std([len(paramGS[l]) for l in paramGS]);
+        return; 
+    
+    def generateData(self, sparseRatio=1.0, iter=1, gsFilePath=None, pairPrefLstFilePath=None):
+        if(gsFilePath is None): gsFilePath = os.path.join(os.path.expanduser('~'), 'exp/tpp/mq2008agg_small', 'mq2008agg_small.gs');
+        if(pairPrefLstFilePath is None): pairPrefLstFilePath = os.path.join(os.path.expanduser('~'), 'exp/tpp/mq2008agg_small', 'mq2008agg_small_sparse_{0}_{1}.data'.format(sparseRatio, iter));
+        
+        if(not os.path.exists(gsFilePath)):
+            fout = open(gsFilePath, 'w');
+            fout.write(str(self.paramGS) + '\n');
+            fout.close();
+        
+        fout = open(pairPrefLstFilePath, 'w');
+        for k in self.paramPS:
+            for l in self.paramPS[k]:
+                iLst = self.paramPS[k][l].keys();
+                for t in range(int(len(iLst) * (len(iLst) - 1.0) / 2.0 * sparseRatio)):
+                    i1 = random.randint(0, len(iLst) - 1);
+                    i2 = random.randint(0, len(iLst) - 2);
+                    if(i2 >= i1): i2 += 1;
+                    i1 = iLst[i1];
+                    i2 = iLst[i2];
+                    if(self.paramPS[k][l][i1] > self.paramPS[k][l][i2]): fout.write(str((k, l, i1, i2)) + '\n');
+                    elif(self.paramPS[k][l][i1] < self.paramPS[k][l][i2]): fout.write(str((k, l, i2, i1)) + '\n');
+                    else: 'tie';
+        fout.close();
+
+def loadPairPrefLst(pairPrefLstPath, uniWorker=False):
+    pairPrefList = [];
+    fin = open(pairPrefLstPath, 'r');
+    for ln in fin:
+        if(len(ln.strip()) == 0): continue;
+        (k, l, i1, i2) = eval(ln.strip());
+        if(not uniWorker): pairPrefList.append((k, l, i1, i2));
+        else: pairPrefList.append((0, l, i1, i2));
+    fin.close();
+    return pairPrefList;
+
+def loadParamGS(gsFilePath=None):
+    if(gsFilePath is None): gsFilePath = os.path.join(os.path.expanduser('~'), 'exp/tpp/mq2008agg_small', 'mq2008agg_small.gs');
+    fin = open(gsFilePath, 'r');
+    paramGS = eval(fin.readline().strip());
+    fin.close(); 
+    return paramGS;
+
+def getSmallSet(gs, ps):
+    paramGS = {};
+    paramPS = {};
+    for l in gs:
+        if(len(gs[l]) > 8): continue;  # remove query with documents more than 8
+        paramGS[l] = gs[l];
+#         print(paramGS[l].values());
+    for k in ps:
+        for l in ps[k]:
+            if(l in paramGS):
+                if(k not in paramPS): paramPS[k] = {};
+                if(l not in paramPS[k]): paramPS[k][l] = {};
+                paramPS[k][l] = ps[k][l];
+    return (paramGS, paramPS);
+
+def evaluteNDCG(gs, rs, k):
+    dcg = 0.0;
+    idcg = 0.0;
+    
+    relLst = [];
+    r = 1;
+    for i in sorted(gs, key=lambda x:-gs[x]):
+        rel = rs[i];
+        if(r < k): dcg += (math.pow(2.0, rel) - 1.0) / math.log(r + 1.0);
+        relLst.append(rel);
+        r += 1;
+    
+    r = 1;
+    for rel in sorted(relLst, reverse=True):
+        if(r < k): idcg += (math.pow(2.0, rel) - 1.0) / math.log(r + 1.0);
+        r += 1;
+    
+    if(idcg == 0.0 and dcg == 0.0): return None;
+    if(idcg == 0.0): 
+        print('error of ndcg computing'); 
+        idcg = 1.0;
+    return dcg / idcg;
+
+def BordaCount(ps):
+    bc = {};
+    for k in ps:
+        for l in ps[k]:
+            iLst = ps[k][l].keys();
+            if(l not in bc): bc[l] = {};
+            for i in iLst: bc[l][i] = 0.0;
+            for j1 in range(len(iLst)):
+                for j2 in range(j1 + 1, len(iLst)):
+                    i1 = iLst[j1];
+                    i2 = iLst[j2];
+                    if(ps[k][l][i1] > ps[k][l][i2]): bc[l][i1] += 1.0;
+                    if(ps[k][l][i2] > ps[k][l][i1]): bc[l][i2] += 1.0;
+    return bc;
+    
+if __name__ == '__main__':
+    ndcg2Lst = [];
+    ndcg4Lst = [];
+    ndcg6Lst = [];
+    ndcg8Lst = [];
+    mqagg = MQAgg();
+    (gs, ps) = (mqagg.paramGS, mqagg.paramPS);
+    bc = BordaCount(ps);
+    for l in gs:
+        if(len(gs[l]) != len(bc[l])): 
+            print 'error';
+            print l;
+            print gs[l];
+            print bc[l];
+        ndcg2Lst.append(evaluteNDCG(gs[l], bc[l], 2));
+        ndcg4Lst.append(evaluteNDCG(gs[l], bc[l], 4));
+        ndcg6Lst.append(evaluteNDCG(gs[l], bc[l], 6));
+        ndcg8Lst.append(evaluteNDCG(gs[l], bc[l], 8));
+    ndcg2Lst = [x for x in ndcg2Lst if(x is not None)];
+    ndcg4Lst = [x for x in ndcg4Lst if(x is not None)];
+    ndcg6Lst = [x for x in ndcg6Lst if(x is not None)];
+    ndcg8Lst = [x for x in ndcg8Lst if(x is not None)];
+    print(avg(ndcg2Lst), std(ndcg2Lst));
+    print(avg(ndcg4Lst), std(ndcg4Lst));
+    print(avg(ndcg6Lst), std(ndcg6Lst));
+    print(avg(ndcg8Lst), std(ndcg8Lst));
+    
+    
+    
+#     mqagg = MQAgg();
+#     for iter in range(1, 6): 
+#         print 'iter {0}'.format(iter);
+#         mqagg.generateData(sparseRatio=1.0, iter=iter);
+#         mqagg.generateData(sparseRatio=0.8, iter=iter);        
+#         mqagg.generateData(sparseRatio=0.6, iter=iter);
+#         mqagg.generateData(sparseRatio=0.4, iter=iter);
+#         mqagg.generateData(sparseRatio=0.2, iter=iter);
+#     print 'finish';

@@ -1,0 +1,77 @@
+function [] = trm(data, lambda, qnum, wnum, dnum, dump_file_path, max_iter)
+    burnnum = 100;
+    sampnum = 10;
+    [psseq, s, delta] = initialize(data, qnum, wnum, dnum, ...
+                            burnnum, sampnum);
+end
+
+function posterior_sampling_phase(data, delta, s, psseq, ...
+                qnum, wnum, dnum, burnnum, sampnum)
+     for iter = 2:(burnnum+sampnum)
+         posterior_sampling_iter(data, delta, s, psseq, iter, ...
+                qnum, wnum, dnum);
+     end
+end
+
+function posterior_sampling_iter(data, delta, s, psseq, iter, ...
+                qnum, wnum, dnum)
+    % ps{l}(k,i,t)
+    % s{l}(i)
+%     nps = cell(1, qnum);
+%     for l = 1:qnum
+%         nps{l} = zeros(wnum, dnum(l));
+%     end
+    for t = 1:length(data)
+        k = data(t, 1);
+        l = data(t, 2);
+        i = data(t, 3);
+        prev = data(t, 4);
+        after = data(t, 5);
+        if(prev == -1)
+            ps_prev = 1e100;
+        else
+            ps_prev = psseq{l}(k, prev, iter-1);
+        end
+        if(after == -1)
+            ps_after = -1e100;
+        else
+            ps_after = psseq{l}(k, after, iter-1);
+        end
+        sli = s{l}(i);
+        ub = (ps_prev - sli) / delta(l);
+        lb = (ps_after - sli) / delta(l);
+        psseq{l}(k,i,iter) = rtnorm(lb, ub);
+    end
+end
+
+function [psseq, s, delta] = initialize(data, qnum, wnum, dnum, ...
+                            burnnum, sampnum)
+    s = cell(1, qnum);
+    for l = 1:qnum
+        s{l} = rand(dnum(l), 1);
+    end
+    psseq = cell(1, qnum);
+    for l = 1:qnum
+        psseq{l} = rand(wnum, dnum(l), burnnum+sampnum);
+    end
+    for t = length(data):-1:1
+        k = data(t, 1);
+        l = data(t, 2);
+        i = data(t, 3);
+        prev = data(t, 4);
+        after = data(t, 5);
+        if(after ~= -1)
+            ps{l}(k,i,1) = ps{l}(k, after,1) + rand();
+        end
+    end
+    delta = rand(qnum, 1) + 1e-2;
+    [psseq, s] = normalize(psseq, s);
+end
+
+function [psseq, s] = normalize(psseq, s)
+    for l = 1:length(s)
+        shift = min(s{l});
+        s{l} = s{l} - shift;
+        psseq{l} = psseq{l} - shift;
+    end
+end
