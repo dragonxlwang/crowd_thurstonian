@@ -4,3 +4,5 @@ In the package, it includes the code for TPP and baselines, data, results as wel
 the paper "Blind Men and The Elephant: Thurstonian Pairwise Preference for Ranking in
 Crowdsourcing".
 
+
+![img](https://github.com/dragonxlwang/crowd_thurstonian/Blind.JPG)
