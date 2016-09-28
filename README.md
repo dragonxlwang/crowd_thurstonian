@@ -5,4 +5,4 @@ the paper "Blind Men and The Elephant: Thurstonian Pairwise Preference for Ranki
 Crowdsourcing".
 
 
-![img](https://en.wikipedia.org/wiki/Blind_men_and_an_elephant#/media/File:Blind.JPG)
+![img](https://upload.wikimedia.org/wikipedia/commons/e/e1/Blind.JPG)
